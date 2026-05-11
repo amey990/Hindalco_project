@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 
 void main() {
   runApp(const HindalcoApp());
@@ -144,6 +147,7 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
       materialType: 'Raw Material',
       temperature: 98.4,
       entryDateTime: DateTime(2026, 5, 8, 9, 42),
+      driverPhotoPath: 'assets/dummy_faces/face1.jpeg',
     ),
     TruckEntry(
       driverName: 'Ajay Singh',
@@ -152,6 +156,7 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
       materialType: 'Finished Goods',
       temperature: 99.1,
       entryDateTime: DateTime(2026, 5, 8, 9, 35),
+      driverPhotoPath: 'assets/dummy_faces/face2.jpeg',
     ),
     TruckEntry(
       driverName: 'Suresh Yadav',
@@ -160,6 +165,7 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
       materialType: 'Fuel',
       temperature: 101.2,
       entryDateTime: DateTime(2026, 5, 8, 9, 21),
+      driverPhotoPath: 'assets/dummy_faces/face3.jpg',
     ),
     TruckEntry(
       driverName: 'Iqbal Khan',
@@ -168,6 +174,7 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
       materialType: 'Waste',
       temperature: 98.7,
       entryDateTime: DateTime(2026, 5, 8, 9, 3),
+      driverPhotoPath: 'assets/dummy_faces/face1.jpeg',
     ),
     TruckEntry(
       driverName: 'Mahesh Jadhav',
@@ -176,6 +183,7 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
       materialType: 'Raw Material',
       temperature: 97.9,
       entryDateTime: DateTime(2026, 5, 8, 8, 51),
+      driverPhotoPath: 'assets/dummy_faces/face2.jpeg',
     ),
     TruckEntry(
       driverName: 'Vikram Rana',
@@ -239,7 +247,11 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
               onNewEntry: () => setState(() => _selectedIndex = 1),
               onLogout: _logout,
             ),
-            NewTruckEntryPage(onLogout: _logout, onSubmit: _addTruckEntry),
+            NewTruckEntryPage(
+              existingEntries: _recentEntries,
+              onLogout: _logout,
+              onSubmit: _addTruckEntry,
+            ),
             RecordsPage(entries: _recentEntries, onLogout: _logout),
             ProfilePage(onLogout: _logout),
           ],
@@ -613,11 +625,13 @@ class RecentEntryTile extends StatelessWidget {
 
 class NewTruckEntryPage extends StatefulWidget {
   const NewTruckEntryPage({
+    required this.existingEntries,
     required this.onLogout,
     required this.onSubmit,
     super.key,
   });
 
+  final List<TruckEntry> existingEntries;
   final VoidCallback onLogout;
   final ValueChanged<TruckEntry> onSubmit;
 
@@ -633,14 +647,21 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
     'Waste',
     'Other',
   ];
-
   final _formKey = GlobalKey<FormState>();
+  final _searchPhoneController = TextEditingController();
+  final _searchDriverNameController = TextEditingController();
   final _driverNameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _truckNumberController = TextEditingController();
   final _temperatureController = TextEditingController();
   late final DateTime _entryDateTime;
   String _selectedCargoType = _cargoTypes.first;
+  String? _driverPhotoPath;
+  bool _isCreatingNewDriver = false;
+  bool _showEntryForm = false;
+  bool _driverNotFound = false;
+  TruckEntry? _matchedDriver;
+  TruckEntry? _matchedTruck;
 
   double? get _temperature =>
       double.tryParse(_temperatureController.text.trim());
@@ -653,16 +674,21 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
     super.initState();
     _entryDateTime = DateTime.now();
     _temperatureController.addListener(_refreshTemperatureWarning);
+    _searchPhoneController.addListener(_refreshDriverSearch);
+    _truckNumberController.addListener(_refreshTruckMatch);
   }
 
   @override
   void dispose() {
+    _searchPhoneController.removeListener(_refreshDriverSearch);
+    _truckNumberController.removeListener(_refreshTruckMatch);
+    _temperatureController.removeListener(_refreshTemperatureWarning);
+    _searchPhoneController.dispose();
+    _searchDriverNameController.dispose();
     _driverNameController.dispose();
     _phoneController.dispose();
     _truckNumberController.dispose();
-    _temperatureController
-      ..removeListener(_refreshTemperatureWarning)
-      ..dispose();
+    _temperatureController.dispose();
     super.dispose();
   }
 
@@ -692,7 +718,7 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Log vehicle, driver, cargo, and gate temperature details.',
+                    'Search driver by phone number before creating gate entry.',
                     style: TextStyle(
                       color: Color(0xFF7D8491),
                       fontSize: 13,
@@ -700,15 +726,15 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
                     ),
                   ),
                   const SizedBox(height: 22),
-                  DashboardTextField(
-                    controller: _driverNameController,
-                    label: 'Driver Name',
-                    icon: Icons.person_outline_rounded,
-                    textInputAction: TextInputAction.next,
+                  const EntrySectionHeader(
+                    icon: Icons.search_rounded,
+                    title: 'Search Driver',
+                    status: 'Phone lookup',
+                    isFound: true,
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
                   DashboardTextField(
-                    controller: _phoneController,
+                    controller: _searchPhoneController,
                     label: 'Driver Phone Number',
                     icon: Icons.call_outlined,
                     keyboardType: TextInputType.phone,
@@ -730,103 +756,50 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
                   ),
                   const SizedBox(height: 14),
                   DashboardTextField(
-                    controller: _truckNumberController,
-                    label: 'Truck Number',
-                    icon: Icons.local_shipping_outlined,
-                    textCapitalization: TextCapitalization.characters,
-                    textInputAction: TextInputAction.next,
-                    inputFormatters: [
-                      UpperCaseTextFormatter(),
-                      LengthLimitingTextInputFormatter(16),
-                    ],
+                    controller: _searchDriverNameController,
+                    label: 'Driver Name',
+                    icon: Icons.person_outline_rounded,
+                    readOnly: true,
+                    validator: (_) => null,
                   ),
-                  const SizedBox(height: 14),
-                  DashboardDropdownField(
-                    value: _selectedCargoType,
-                    label: 'Material / Cargo Type',
-                    items: _cargoTypes,
-                    onChanged:
-                        (value) => setState(
-                          () => _selectedCargoType = value ?? _cargoTypes.first,
-                        ),
-                  ),
-                  const SizedBox(height: 14),
-                  DashboardTextField(
-                    controller: _temperatureController,
-                    label: 'Temperature (F)',
-                    icon: Icons.thermostat_outlined,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
+                  if (_matchedDriver != null) ...[
+                    const SizedBox(height: 8),
+                    const EntryStatusText(
+                      text: 'Driver is already in records',
+                      color: Color(0xFF17A56B),
                     ),
-                    textInputAction: TextInputAction.done,
-                    inputFormatters: [
-                      DecimalTemperatureFormatter(),
-                      LengthLimitingTextInputFormatter(5),
-                    ],
-                    validator: (value) {
-                      final temperature = double.tryParse(value?.trim() ?? '');
-                      if (temperature == null) {
-                        return 'Temperature is required';
-                      }
-                      if (temperature < 90 || temperature > 110) {
-                        return 'Enter a valid temperature';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed:
-                        () => _showAuthMessage(
-                          context,
-                          'Bluetooth thermometer integration coming soon.',
-                        ),
-                    icon: const Icon(Icons.bluetooth_searching_rounded),
-                    label: const Text('Connect Bluetooth Thermometer'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF1BA7E1),
-                      side: const BorderSide(color: Color(0xFF1BA7E1)),
-                      minimumSize: const Size.fromHeight(48),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      textStyle: const TextStyle(fontWeight: FontWeight.w800),
+                  ],
+                  if (_driverNotFound) ...[
+                    const SizedBox(height: 8),
+                    const EntryStatusText(
+                      text: 'Driver does not exist',
+                      color: Color(0xFFE5484D),
                     ),
-                  ),
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 180),
-                    child:
-                        _hasHighTemperature
-                            ? const Padding(
-                              key: ValueKey('high-temperature-warning'),
-                              padding: EdgeInsets.only(top: 14),
-                              child: HighTemperatureBanner(),
-                            )
-                            : const SizedBox.shrink(),
-                  ),
-                  const SizedBox(height: 14),
-                  DateTimeInfoField(value: _formatDateTime(_entryDateTime)),
-                  const Spacer(),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: FilledButton(
-                      onPressed: _submitEntry,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF111827),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        textStyle: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: OutlinedButton.icon(
+                        onPressed: _createNewDriver,
+                        icon: const Icon(Icons.person_add_alt_1_rounded),
+                        label: const Text('Create New Entry'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFE5484D),
+                          side: const BorderSide(color: Color(0xFFE5484D)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          textStyle: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
-                      child: const Text('Submit Entry'),
                     ),
-                  ),
+                  ],
+                  if (_showEntryForm) ...[
+                    const SizedBox(height: 22),
+                    _buildEntryFields(),
+                  ],
                 ],
               ),
             ),
@@ -838,6 +811,251 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
 
   void _refreshTemperatureWarning() {
     setState(() {});
+  }
+
+  Widget _buildEntryFields() {
+    final isExistingDriver = _matchedDriver != null && !_isCreatingNewDriver;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        EntrySectionHeader(
+          icon: Icons.assignment_outlined,
+          title: isExistingDriver ? 'Entry Details' : 'Create New Entry',
+          status: isExistingDriver ? 'Existing driver' : 'New driver',
+          isFound: isExistingDriver,
+        ),
+        const SizedBox(height: 12),
+        DashboardTextField(
+          controller: _phoneController,
+          label: 'Driver Phone Number',
+          icon: Icons.call_outlined,
+          readOnly: isExistingDriver,
+          keyboardType: TextInputType.phone,
+          textInputAction: TextInputAction.next,
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(10),
+          ],
+          validator: (value) {
+            final phone = value?.trim() ?? '';
+            if (phone.isEmpty) {
+              return 'Driver phone number is required';
+            }
+            if (phone.length < 10) {
+              return 'Enter a valid 10 digit phone number';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 14),
+        DashboardTextField(
+          controller: _driverNameController,
+          label: 'Driver Name',
+          icon: Icons.person_outline_rounded,
+          readOnly: isExistingDriver,
+          textInputAction: TextInputAction.next,
+        ),
+        const SizedBox(height: 14),
+        DashboardTextField(
+          controller: _truckNumberController,
+          label: 'Truck Number',
+          icon: Icons.local_shipping_outlined,
+          textCapitalization: TextCapitalization.characters,
+          textInputAction: TextInputAction.next,
+          inputFormatters: [
+            UpperCaseTextFormatter(),
+            LengthLimitingTextInputFormatter(16),
+          ],
+        ),
+        const SizedBox(height: 14),
+        DashboardDropdownField(
+          value: _selectedCargoType,
+          label: 'Material / Cargo Type',
+          icon: Icons.inventory_2_outlined,
+          items: _cargoTypes,
+          onChanged:
+              (value) =>
+                  setState(() => _selectedCargoType = value ?? _cargoTypes.first),
+        ),
+        const SizedBox(height: 14),
+        DashboardTextField(
+          controller: _temperatureController,
+          label: 'Temperature (F)',
+          icon: Icons.thermostat_outlined,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          textInputAction: TextInputAction.done,
+          inputFormatters: [
+            DecimalTemperatureFormatter(),
+            LengthLimitingTextInputFormatter(5),
+          ],
+          validator: (value) {
+            final temperature = double.tryParse(value?.trim() ?? '');
+            if (temperature == null) {
+              return 'Temperature is required';
+            }
+            if (temperature < 90 || temperature > 110) {
+              return 'Enter a valid temperature';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 12),
+        DriverPhotoCapture(
+          photoPath: _driverPhotoPath,
+          onCapture: _captureDriverPhoto,
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed:
+              () => _showAuthMessage(
+                context,
+                'Bluetooth thermometer integration coming soon.',
+              ),
+          icon: const Icon(Icons.bluetooth_searching_rounded),
+          label: const Text('Connect Bluetooth Thermometer'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFF1BA7E1),
+            side: const BorderSide(color: Color(0xFF1BA7E1)),
+            minimumSize: const Size.fromHeight(48),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            textStyle: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+        ),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          child:
+              _hasHighTemperature
+                  ? const Padding(
+                    key: ValueKey('high-temperature-warning'),
+                    padding: EdgeInsets.only(top: 14),
+                    child: HighTemperatureBanner(),
+                  )
+                  : const SizedBox.shrink(),
+        ),
+        const SizedBox(height: 14),
+        DateTimeInfoField(value: _formatDateTime(_entryDateTime)),
+        const SizedBox(height: 24),
+        SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: FilledButton(
+            onPressed: _submitEntry,
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF111827),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              textStyle: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            child: const Text('Submit Entry'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _refreshDriverSearch() {
+    final phone = _searchPhoneController.text.trim();
+    if (phone.length < 10) {
+      setState(() {
+        _matchedDriver = null;
+        _matchedTruck = null;
+        _driverNotFound = false;
+        _showEntryForm = false;
+        _isCreatingNewDriver = false;
+        _searchDriverNameController.clear();
+      });
+      return;
+    }
+
+    final match = _findDriverByPhone(phone);
+    setState(() {
+      _matchedDriver = match;
+      _driverNotFound = match == null;
+      _showEntryForm = match != null;
+      _isCreatingNewDriver = false;
+      _searchDriverNameController.text = match?.driverName ?? '';
+      if (match != null) {
+        _fillEntryFromRecord(match);
+      } else {
+        _clearEntryFields(keepSearchPhone: true);
+      }
+    });
+  }
+
+  void _refreshTruckMatch() {
+    final match = _findTruckMatch();
+    if (match == _matchedTruck) {
+      return;
+    }
+    setState(() => _matchedTruck = match);
+  }
+
+  TruckEntry? _findDriverByPhone(String phone) {
+    for (final entry in widget.existingEntries) {
+      if (entry.driverPhone == phone) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  TruckEntry? _findTruckMatch() {
+    final truckNumber = _normalizeTruckNumber(_truckNumberController.text);
+    if (truckNumber.length < 6) {
+      return null;
+    }
+    for (final entry in widget.existingEntries) {
+      if (_normalizeTruckNumber(entry.truckNumber) == truckNumber) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  void _fillEntryFromRecord(TruckEntry entry) {
+    _phoneController.text = entry.driverPhone;
+    _driverNameController.text = entry.driverName;
+    _truckNumberController.text = entry.truckNumber;
+    _selectedCargoType = entry.materialType;
+    _driverPhotoPath = entry.driverPhotoPath;
+    _matchedTruck = entry;
+  }
+
+  void _clearEntryFields({bool keepSearchPhone = false}) {
+    _phoneController.text = keepSearchPhone ? _searchPhoneController.text : '';
+    _driverNameController.clear();
+    _truckNumberController.clear();
+    _temperatureController.clear();
+    _selectedCargoType = _cargoTypes.first;
+    _driverPhotoPath = null;
+    _matchedTruck = null;
+  }
+
+  void _createNewDriver() {
+    setState(() {
+      _matchedDriver = null;
+      _isCreatingNewDriver = true;
+      _showEntryForm = true;
+      _driverNotFound = false;
+      _clearEntryFields(keepSearchPhone: true);
+    });
+  }
+
+  Future<void> _captureDriverPhoto() async {
+    final photo = await ImagePicker().pickImage(
+      source: ImageSource.camera,
+      imageQuality: 80,
+      maxWidth: 1200,
+    );
+    if (!mounted || photo == null) {
+      return;
+    }
+    setState(() => _driverPhotoPath = photo.path);
+    _showAuthMessage(context, 'Driver photo captured and uploaded.');
   }
 
   void _submitEntry() {
@@ -853,14 +1071,263 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
         materialType: _selectedCargoType,
         temperature: _temperature!,
         entryDateTime: _entryDateTime,
+        driverPhotoPath: _driverPhotoPath,
       ),
     );
     _formKey.currentState?.reset();
-    _driverNameController.clear();
-    _phoneController.clear();
-    _truckNumberController.clear();
-    _temperatureController.clear();
-    setState(() => _selectedCargoType = _cargoTypes.first);
+    _searchPhoneController.clear();
+    _searchDriverNameController.clear();
+    _clearEntryFields();
+    setState(() {
+      _driverNotFound = false;
+      _showEntryForm = false;
+      _isCreatingNewDriver = false;
+      _matchedDriver = null;
+    });
+  }
+}
+
+class EntrySectionHeader extends StatelessWidget {
+  const EntrySectionHeader({
+    required this.icon,
+    required this.title,
+    required this.status,
+    required this.isFound,
+    super.key,
+  });
+
+  final IconData icon;
+  final String title;
+  final String status;
+  final bool isFound;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isFound ? const Color(0xFF17A56B) : const Color(0xFFE08A00);
+
+    return Row(
+      children: [
+        Icon(icon, color: const Color(0xFF1BA7E1), size: 21),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              color: Color(0xFF111827),
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            status,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class EntryLookupBanner extends StatelessWidget {
+  const EntryLookupBanner({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.color,
+    this.actionLabel,
+    this.onAction,
+    super.key,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final Color color;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.32)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 21),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  message,
+                  style: const TextStyle(
+                    color: Color(0xFF515A68),
+                    fontSize: 12,
+                    height: 1.3,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (actionLabel != null && onAction != null) ...[
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: onAction,
+                    icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+                    label: Text(actionLabel!),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: color,
+                      side: BorderSide(color: color),
+                      minimumSize: const Size(0, 38),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class EntryStatusText extends StatelessWidget {
+  const EntryStatusText({required this.text, required this.color, super.key});
+
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w900),
+    );
+  }
+}
+
+class DriverPhotoCapture extends StatelessWidget {
+  const DriverPhotoCapture({
+    required this.photoPath,
+    required this.onCapture,
+    super.key,
+  });
+
+  final String? photoPath;
+  final VoidCallback onCapture;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child:
+                photoPath == null
+                    ? Container(
+                      height: 54,
+                      width: 54,
+                      color: const Color(0xFFEAF6FC),
+                      child: const Icon(
+                        Icons.person_outline_rounded,
+                        color: Color(0xFF1BA7E1),
+                      ),
+                    )
+                    : DriverPhotoImage(
+                      path: photoPath!,
+                      height: 54,
+                      width: 54,
+                    ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              photoPath == null ? 'Driver Photo' : 'Photo uploaded',
+              style: const TextStyle(
+                color: Color(0xFF111827),
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          IconButton.filledTonal(
+            onPressed: onCapture,
+            icon: const Icon(Icons.photo_camera_outlined),
+            tooltip: 'Capture driver photo',
+            color: const Color(0xFF1BA7E1),
+            style: IconButton.styleFrom(
+              backgroundColor: const Color(0xFFEAF6FC),
+              fixedSize: const Size(44, 44),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class DriverPhotoImage extends StatelessWidget {
+  const DriverPhotoImage({
+    required this.path,
+    required this.height,
+    required this.width,
+    super.key,
+  });
+
+  final String path;
+  final double height;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    if (path.startsWith('assets/')) {
+      return Image.asset(path, height: height, width: width, fit: BoxFit.cover);
+    }
+    return Image.file(File(path), height: height, width: width, fit: BoxFit.cover);
   }
 }
 
@@ -874,6 +1341,7 @@ class DashboardTextField extends StatelessWidget {
     this.textCapitalization = TextCapitalization.none,
     this.inputFormatters,
     this.validator,
+    this.readOnly = false,
     super.key,
   });
 
@@ -885,11 +1353,13 @@ class DashboardTextField extends StatelessWidget {
   final TextCapitalization textCapitalization;
   final List<TextInputFormatter>? inputFormatters;
   final String? Function(String?)? validator;
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
     return TextFormField(
       controller: controller,
+      readOnly: readOnly,
       keyboardType: keyboardType,
       textInputAction: textInputAction,
       textCapitalization: textCapitalization,
@@ -902,7 +1372,9 @@ class DashboardTextField extends StatelessWidget {
             }
             return null;
           },
-      decoration: _dashboardInputDecoration(label, icon),
+      decoration: _dashboardInputDecoration(label, icon).copyWith(
+        fillColor: readOnly ? const Color(0xFFF8FAFC) : Colors.white,
+      ),
     );
   }
 }
@@ -911,6 +1383,7 @@ class DashboardDropdownField extends StatelessWidget {
   const DashboardDropdownField({
     required this.value,
     required this.label,
+    required this.icon,
     required this.items,
     required this.onChanged,
     super.key,
@@ -918,6 +1391,7 @@ class DashboardDropdownField extends StatelessWidget {
 
   final String value;
   final String label;
+  final IconData icon;
   final List<String> items;
   final ValueChanged<String?> onChanged;
 
@@ -931,7 +1405,7 @@ class DashboardDropdownField extends StatelessWidget {
               .toList(),
       onChanged: onChanged,
       icon: const Icon(Icons.keyboard_arrow_down_rounded),
-      decoration: _dashboardInputDecoration(label, Icons.inventory_2_outlined),
+      decoration: _dashboardInputDecoration(label, icon),
       validator: (value) {
         if (value == null || value.isEmpty) {
           return '$label is required';
@@ -1431,6 +1905,19 @@ class RecordDetailPage extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 22),
+              if (entry.driverPhotoPath != null) ...[
+                Center(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: DriverPhotoImage(
+                      path: entry.driverPhotoPath!,
+                      height: 112,
+                      width: 112,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(18),
@@ -1818,6 +2305,7 @@ class TruckEntry {
     required this.materialType,
     required this.temperature,
     required this.entryDateTime,
+    this.driverPhotoPath,
   });
 
   final String driverName;
@@ -1826,6 +2314,7 @@ class TruckEntry {
   final String materialType;
   final double temperature;
   final DateTime entryDateTime;
+  final String? driverPhotoPath;
 
   bool get isNormal => temperature <= highTemperatureLimit;
 
@@ -1880,6 +2369,10 @@ bool _isSameDate(DateTime first, DateTime second) {
   return first.year == second.year &&
       first.month == second.month &&
       first.day == second.day;
+}
+
+String _normalizeTruckNumber(String value) {
+  return value.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
 }
 
 class UpperCaseTextFormatter extends TextInputFormatter {
