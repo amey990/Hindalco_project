@@ -299,9 +299,7 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
   void _addTruckEntry(TruckEntry entry) {
     setState(() {
       _recentEntries.insert(0, entry);
-      _selectedIndex = 0;
     });
-    _showAuthMessage(context, 'Truck entry submitted successfully.');
   }
 }
 
@@ -470,8 +468,20 @@ class DashboardHeader extends StatelessWidget {
           ),
         ),
         IconButton.filledTonal(
+          onPressed: () => _showNotifications(context),
+          icon: const Icon(Icons.notifications_outlined),
+          tooltip: 'Notifications',
+          color: const Color(0xFF111827),
+          style: IconButton.styleFrom(
+            backgroundColor: const Color(0xFFEAF6FC),
+            fixedSize: const Size(46, 46),
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton.filledTonal(
           onPressed: onLogout,
           icon: const Icon(Icons.logout_rounded),
+          tooltip: 'Logout',
           color: const Color(0xFF111827),
           style: IconButton.styleFrom(
             backgroundColor: const Color(0xFFEAF6FC),
@@ -640,7 +650,7 @@ class NewTruckEntryPage extends StatefulWidget {
 }
 
 class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
-  static const _cargoTypes = [
+  final List<String> _cargoTypes = [
     'Raw Material',
     'Finished Goods',
     'Fuel',
@@ -655,13 +665,14 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
   final _truckNumberController = TextEditingController();
   final _temperatureController = TextEditingController();
   late final DateTime _entryDateTime;
-  String _selectedCargoType = _cargoTypes.first;
+  String _selectedCargoType = 'Raw Material';
   String? _driverPhotoPath;
   bool _isCreatingNewDriver = false;
   bool _showEntryForm = false;
   bool _driverNotFound = false;
   TruckEntry? _matchedDriver;
   TruckEntry? _matchedTruck;
+  bool? _lastSubmissionApproved;
 
   double? get _temperature =>
       double.tryParse(_temperatureController.text.trim());
@@ -694,6 +705,14 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_lastSubmissionApproved != null) {
+      return EntryApprovalResultScreen(
+        isApproved: _lastSubmissionApproved!,
+        onLogout: widget.onLogout,
+        onGoBack: _returnToEntryForm,
+      );
+    }
+
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
       slivers: [
@@ -754,15 +773,15 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
                       return null;
                     },
                   ),
-                  const SizedBox(height: 14),
-                  DashboardTextField(
-                    controller: _searchDriverNameController,
-                    label: 'Driver Name',
-                    icon: Icons.person_outline_rounded,
-                    readOnly: true,
-                    validator: (_) => null,
-                  ),
                   if (_matchedDriver != null) ...[
+                    const SizedBox(height: 14),
+                    DashboardTextField(
+                      controller: _searchDriverNameController,
+                      label: 'Driver Name',
+                      icon: Icons.person_outline_rounded,
+                      readOnly: true,
+                      validator: (_) => null,
+                    ),
                     const SizedBox(height: 8),
                     const EntryStatusText(
                       text: 'Driver is already in records',
@@ -877,6 +896,7 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
           onChanged:
               (value) =>
                   setState(() => _selectedCargoType = value ?? _cargoTypes.first),
+          onAddOption: _showAddCargoTypeDialog,
         ),
         const SizedBox(height: 14),
         DashboardTextField(
@@ -1020,6 +1040,9 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
     _phoneController.text = entry.driverPhone;
     _driverNameController.text = entry.driverName;
     _truckNumberController.text = entry.truckNumber;
+    if (!_cargoTypes.contains(entry.materialType)) {
+      _cargoTypes.add(entry.materialType);
+    }
     _selectedCargoType = entry.materialType;
     _driverPhotoPath = entry.driverPhotoPath;
     _matchedTruck = entry;
@@ -1058,32 +1081,225 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
     _showAuthMessage(context, 'Driver photo captured and uploaded.');
   }
 
+  Future<void> _showAddCargoTypeDialog() async {
+    final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    final newOption = await showDialog<String>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            title: const Text(
+              'Add Material Type',
+              style: TextStyle(fontWeight: FontWeight.w900),
+            ),
+            content: Form(
+              key: formKey,
+              child: TextFormField(
+                controller: controller,
+                textCapitalization: TextCapitalization.words,
+                autofocus: true,
+                decoration: _dashboardInputDecoration(
+                  'Material / Cargo Type',
+                  Icons.inventory_2_outlined,
+                ),
+                validator: (value) {
+                  final option = value?.trim() ?? '';
+                  if (option.isEmpty) {
+                    return 'Material type is required';
+                  }
+                  final exists = _cargoTypes.any(
+                    (item) => item.toLowerCase() == option.toLowerCase(),
+                  );
+                  if (exists) {
+                    return 'This material type already exists';
+                  }
+                  return null;
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  if (formKey.currentState?.validate() ?? false) {
+                    Navigator.of(dialogContext).pop(controller.text.trim());
+                  }
+                },
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF111827),
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => controller.dispose());
+    if (!mounted || newOption == null) {
+      return;
+    }
+
+    setState(() {
+      _cargoTypes.add(newOption);
+      _selectedCargoType = newOption;
+    });
+  }
+
   void _submitEntry() {
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
 
-    widget.onSubmit(
-      TruckEntry(
-        driverName: _driverNameController.text.trim(),
-        driverPhone: _phoneController.text.trim(),
-        truckNumber: _truckNumberController.text.trim().toUpperCase(),
-        materialType: _selectedCargoType,
-        temperature: _temperature!,
-        entryDateTime: _entryDateTime,
-        driverPhotoPath: _driverPhotoPath,
-      ),
+    final entry = TruckEntry(
+      driverName: _driverNameController.text.trim(),
+      driverPhone: _phoneController.text.trim(),
+      truckNumber: _truckNumberController.text.trim().toUpperCase(),
+      materialType: _selectedCargoType,
+      temperature: _temperature!,
+      entryDateTime: _entryDateTime,
+      driverPhotoPath: _driverPhotoPath,
     );
+    widget.onSubmit(entry);
     _formKey.currentState?.reset();
     _searchPhoneController.clear();
     _searchDriverNameController.clear();
     _clearEntryFields();
     setState(() {
+      _lastSubmissionApproved = entry.isNormal;
       _driverNotFound = false;
       _showEntryForm = false;
       _isCreatingNewDriver = false;
       _matchedDriver = null;
     });
+  }
+
+  void _returnToEntryForm() {
+    setState(() => _lastSubmissionApproved = null);
+  }
+}
+
+class EntryApprovalResultScreen extends StatelessWidget {
+  const EntryApprovalResultScreen({
+    required this.isApproved,
+    required this.onLogout,
+    required this.onGoBack,
+    super.key,
+  });
+
+  final bool isApproved;
+  final VoidCallback onLogout;
+  final VoidCallback onGoBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isApproved ? const Color(0xFF17A56B) : const Color(0xFFE5484D);
+    final softColor =
+        isApproved ? const Color(0xFFEAF8F1) : const Color(0xFFFFEBEE);
+    final icon =
+        isApproved ? Icons.check_circle_rounded : Icons.cancel_rounded;
+    final title = isApproved ? 'Approved' : 'Not Approved';
+    final message =
+        isApproved
+            ? 'Temperature is within the healthy adult range of 97 F to 99 F.'
+            : 'Temperature is outside the healthy adult range of 97 F to 99 F.';
+
+    return CustomScrollView(
+      physics: const BouncingScrollPhysics(),
+      slivers: [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              children: [
+                DashboardHeader(onLogout: onLogout),
+                const Spacer(),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(20, 28, 20, 24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: color.withValues(alpha: 0.28)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withValues(alpha: 0.08),
+                        blurRadius: 22,
+                        offset: const Offset(0, 12),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        height: 104,
+                        width: 104,
+                        decoration: BoxDecoration(
+                          color: softColor,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(icon, color: color, size: 68),
+                      ),
+                      const SizedBox(height: 22),
+                      Text(
+                        title,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: color,
+                          fontSize: 30,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        message,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Color(0xFF515A68),
+                          fontSize: 14,
+                          height: 1.45,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 26),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 54,
+                        child: FilledButton.icon(
+                          onPressed: onGoBack,
+                          icon: const Icon(Icons.arrow_back_rounded),
+                          label: const Text('Go Back'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: color,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            textStyle: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Spacer(),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -1386,6 +1602,7 @@ class DashboardDropdownField extends StatelessWidget {
     required this.icon,
     required this.items,
     required this.onChanged,
+    required this.onAddOption,
     super.key,
   });
 
@@ -1394,24 +1611,59 @@ class DashboardDropdownField extends StatelessWidget {
   final IconData icon;
   final List<String> items;
   final ValueChanged<String?> onChanged;
+  final VoidCallback onAddOption;
 
   @override
   Widget build(BuildContext context) {
-    return DropdownButtonFormField<String>(
-      initialValue: value,
-      items:
-          items
-              .map((item) => DropdownMenuItem(value: item, child: Text(item)))
-              .toList(),
-      onChanged: onChanged,
-      icon: const Icon(Icons.keyboard_arrow_down_rounded),
-      decoration: _dashboardInputDecoration(label, icon),
-      validator: (value) {
-        if (value == null || value.isEmpty) {
-          return '$label is required';
-        }
-        return null;
-      },
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            key: ValueKey('${items.length}-$value'),
+            initialValue: items.contains(value) ? value : null,
+            items:
+                items
+                    .map(
+                      (item) => DropdownMenuItem(
+                        value: item,
+                        child: Text(
+                          item,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(),
+            onChanged: onChanged,
+            icon: const Icon(Icons.keyboard_arrow_down_rounded),
+            decoration: _dashboardInputDecoration(label, icon),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return '$label is required';
+              }
+              return null;
+            },
+          ),
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          height: 56,
+          width: 56,
+          child: IconButton.filledTonal(
+            onPressed: onAddOption,
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: 'Add material type',
+            color: const Color(0xFF1BA7E1),
+            style: IconButton.styleFrom(
+              backgroundColor: const Color(0xFFEAF6FC),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: const BorderSide(color: Color(0xFFE5E7EB)),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1503,7 +1755,9 @@ class HighTemperatureBanner extends StatelessWidget {
   }
 }
 
-enum RecordsFilter { all, today, week, highTemp }
+enum RecordsViewMode { all, byUser }
+
+enum RecordsTimelineFilter { today, yesterday, lastWeek, lastMonth }
 
 class RecordsPage extends StatefulWidget {
   const RecordsPage({required this.entries, required this.onLogout, super.key});
@@ -1517,7 +1771,8 @@ class RecordsPage extends StatefulWidget {
 
 class _RecordsPageState extends State<RecordsPage> {
   final _searchController = TextEditingController();
-  RecordsFilter _selectedFilter = RecordsFilter.all;
+  RecordsViewMode _selectedMode = RecordsViewMode.all;
+  RecordsTimelineFilter _selectedTimeline = RecordsTimelineFilter.today;
 
   @override
   void dispose() {
@@ -1531,14 +1786,46 @@ class _RecordsPageState extends State<RecordsPage> {
       final matchesSearch =
           query.isEmpty ||
           entry.driverName.toLowerCase().contains(query) ||
-          entry.truckNumber.toLowerCase().contains(query);
-      return matchesSearch && _matchesFilter(entry);
+          entry.driverPhone.contains(query) ||
+          entry.truckNumber.toLowerCase().contains(query) ||
+          entry.materialType.toLowerCase().contains(query);
+      return matchesSearch && _matchesTimeline(entry);
     }).toList();
+  }
+
+  List<DriverRecordSummary> get _driverSummaries {
+    final grouped = <String, List<TruckEntry>>{};
+    for (final entry in _filteredEntries) {
+      grouped.putIfAbsent(entry.driverPhone, () => []).add(entry);
+    }
+
+    final summaries =
+        grouped.entries.map((group) {
+          final logs = [...group.value]
+            ..sort((a, b) => b.entryDateTime.compareTo(a.entryDateTime));
+          return DriverRecordSummary(latestEntry: logs.first, logs: logs);
+        }).toList();
+
+    summaries.sort(
+      (a, b) => b.latestEntry.entryDateTime.compareTo(
+        a.latestEntry.entryDateTime,
+      ),
+    );
+    return summaries;
   }
 
   @override
   Widget build(BuildContext context) {
     final entries = _filteredEntries;
+    final driverSummaries = _driverSummaries;
+    final visibleCount =
+        _selectedMode == RecordsViewMode.all
+            ? entries.length
+            : driverSummaries.length;
+    final countLabel =
+        _selectedMode == RecordsViewMode.all
+            ? 'record${visibleCount == 1 ? '' : 's'}'
+            : 'driver${visibleCount == 1 ? '' : 's'}';
 
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
@@ -1563,11 +1850,65 @@ class _RecordsPageState extends State<RecordsPage> {
                         ),
                       ),
                     ),
+                    SizedBox(
+                      width: 118,
+                      height: 46,
+                      child: DropdownButtonFormField<RecordsTimelineFilter>(
+                        initialValue: _selectedTimeline,
+                        isExpanded: true,
+                        icon: const Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          size: 20,
+                        ),
+                        items:
+                            RecordsTimelineFilter.values
+                                .map(
+                                  (filter) => DropdownMenuItem(
+                                    value: filter,
+                                    child: Text(_timelineLabel(filter)),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged:
+                            (value) => setState(
+                              () =>
+                                  _selectedTimeline =
+                                      value ?? RecordsTimelineFilter.today,
+                            ),
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: Colors.white,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 10,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE5E7EB),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF1BA7E1),
+                              width: 1.4,
+                            ),
+                          ),
+                        ),
+                        style: const TextStyle(
+                          color: Color(0xFF111827),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     IconButton.filledTonal(
                       onPressed:
                           () => _showAuthMessage(
                             context,
-                            'Export records UI is ready for integration.',
+                            'Downloading ${_timelineLabel(_selectedTimeline).toLowerCase()} records.',
                           ),
                       icon: const Icon(Icons.download_rounded),
                       tooltip: 'Download records',
@@ -1590,48 +1931,13 @@ class _RecordsPageState extends State<RecordsPage> {
                   ),
                 ),
                 const SizedBox(height: 14),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      RecordsFilterChip(
-                        label: 'All',
-                        selected: _selectedFilter == RecordsFilter.all,
-                        onTap:
-                            () => setState(
-                              () => _selectedFilter = RecordsFilter.all,
-                            ),
-                      ),
-                      RecordsFilterChip(
-                        label: 'Today',
-                        selected: _selectedFilter == RecordsFilter.today,
-                        onTap:
-                            () => setState(
-                              () => _selectedFilter = RecordsFilter.today,
-                            ),
-                      ),
-                      RecordsFilterChip(
-                        label: 'This Week',
-                        selected: _selectedFilter == RecordsFilter.week,
-                        onTap:
-                            () => setState(
-                              () => _selectedFilter = RecordsFilter.week,
-                            ),
-                      ),
-                      RecordsFilterChip(
-                        label: 'High Temp Only',
-                        selected: _selectedFilter == RecordsFilter.highTemp,
-                        onTap:
-                            () => setState(
-                              () => _selectedFilter = RecordsFilter.highTemp,
-                            ),
-                      ),
-                    ],
-                  ),
+                RecordsModeToggle(
+                  selectedMode: _selectedMode,
+                  onChanged: (mode) => setState(() => _selectedMode = mode),
                 ),
                 const SizedBox(height: 18),
                 Text(
-                  '${entries.length} record${entries.length == 1 ? '' : 's'} found',
+                  '$visibleCount $countLabel found',
                   style: const TextStyle(
                     color: Color(0xFF7D8491),
                     fontSize: 13,
@@ -1642,12 +1948,12 @@ class _RecordsPageState extends State<RecordsPage> {
             ),
           ),
         ),
-        if (entries.isEmpty)
+        if (visibleCount == 0)
           const SliverFillRemaining(
             hasScrollBody: false,
             child: EmptyRecordsState(),
           )
-        else
+        else if (_selectedMode == RecordsViewMode.all)
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
             sliver: SliverList.separated(
@@ -1659,21 +1965,23 @@ class _RecordsPageState extends State<RecordsPage> {
                     onTap: () => _openRecordDetail(entries[index]),
                   ),
             ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            sliver: SliverList.separated(
+              itemCount: driverSummaries.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 10),
+              itemBuilder:
+                  (context, index) => DriverSummaryCard(
+                    summary: driverSummaries[index],
+                    onTap:
+                        () => _openDriverRecordsDetail(driverSummaries[index]),
+                  ),
+            ),
           ),
       ],
     );
-  }
-
-  bool _matchesFilter(TruckEntry entry) {
-    final now = DateTime.now();
-    return switch (_selectedFilter) {
-      RecordsFilter.all => true,
-      RecordsFilter.today => _isSameDate(entry.entryDateTime, now),
-      RecordsFilter.week => entry.entryDateTime.isAfter(
-        now.subtract(const Duration(days: 7)),
-      ),
-      RecordsFilter.highTemp => !entry.isNormal,
-    };
   }
 
   void _openRecordDetail(TruckEntry entry) {
@@ -1681,43 +1989,130 @@ class _RecordsPageState extends State<RecordsPage> {
       MaterialPageRoute<void>(builder: (_) => RecordDetailPage(entry: entry)),
     );
   }
+
+  void _openDriverRecordsDetail(DriverRecordSummary summary) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DriverRecordsDetailPage(summary: summary),
+      ),
+    );
+  }
+
+  bool _matchesTimeline(TruckEntry entry) {
+    final now = DateTime.now();
+    final date = DateTime(
+      entry.entryDateTime.year,
+      entry.entryDateTime.month,
+      entry.entryDateTime.day,
+    );
+    final today = DateTime(now.year, now.month, now.day);
+    return switch (_selectedTimeline) {
+      RecordsTimelineFilter.today => date == today,
+      RecordsTimelineFilter.yesterday =>
+        date == today.subtract(const Duration(days: 1)),
+      RecordsTimelineFilter.lastWeek =>
+        !date.isBefore(today.subtract(const Duration(days: 7))) &&
+            !date.isAfter(today),
+      RecordsTimelineFilter.lastMonth =>
+        !date.isBefore(DateTime(now.year, now.month - 1, now.day)) &&
+            !date.isAfter(today),
+    };
+  }
 }
 
-class RecordsFilterChip extends StatelessWidget {
-  const RecordsFilterChip({
+class RecordsModeToggle extends StatelessWidget {
+  const RecordsModeToggle({
+    required this.selectedMode,
+    required this.onChanged,
+    super.key,
+  });
+
+  final RecordsViewMode selectedMode;
+  final ValueChanged<RecordsViewMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 46,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF1BA7E1)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: RecordsModeButton(
+              label: 'All',
+              isSelected: selectedMode == RecordsViewMode.all,
+              isFirst: true,
+              onTap: () => onChanged(RecordsViewMode.all),
+            ),
+          ),
+          Container(width: 1, color: const Color(0xFF1BA7E1)),
+          Expanded(
+            child: RecordsModeButton(
+              label: 'By user',
+              isSelected: selectedMode == RecordsViewMode.byUser,
+              onTap: () => onChanged(RecordsViewMode.byUser),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class RecordsModeButton extends StatelessWidget {
+  const RecordsModeButton({
     required this.label,
-    required this.selected,
+    required this.isSelected,
     required this.onTap,
+    this.isFirst = false,
     super.key,
   });
 
   final String label;
-  final bool selected;
+  final bool isSelected;
+  final bool isFirst;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: ChoiceChip(
-        label: Text(label),
-        selected: selected,
-        onSelected: (_) => onTap(),
-        showCheckmark: false,
-        selectedColor: const Color(0xFF111827),
-        backgroundColor: Colors.white,
-        side: BorderSide(
-          color: selected ? const Color(0xFF111827) : const Color(0xFFE5E7EB),
+    final radius = BorderRadius.horizontal(
+      left: isFirst ? const Radius.circular(7) : Radius.zero,
+      right: isFirst ? Radius.zero : const Radius.circular(7),
+    );
+
+    return Material(
+      color: isSelected ? const Color(0xFFEAF6FC) : Colors.white,
+      borderRadius: radius,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: radius,
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color:
+                  isSelected ? const Color(0xFF1BA7E1) : const Color(0xFF515A68),
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
         ),
-        labelStyle: TextStyle(
-          color: selected ? Colors.white : const Color(0xFF515A68),
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }
+}
+
+class DriverRecordSummary {
+  const DriverRecordSummary({required this.latestEntry, required this.logs});
+
+  final TruckEntry latestEntry;
+  final List<TruckEntry> logs;
+
+  int get totalLogs => logs.length;
 }
 
 class RecordCard extends StatelessWidget {
@@ -1824,6 +2219,124 @@ class RecordMetaText extends StatelessWidget {
         color: Color(0xFF515A68),
         fontSize: 12,
         fontWeight: FontWeight.w800,
+      ),
+    );
+  }
+}
+
+class DriverSummaryCard extends StatelessWidget {
+  const DriverSummaryCard({
+    required this.summary,
+    required this.onTap,
+    super.key,
+  });
+
+  final DriverRecordSummary summary;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final entry = summary.latestEntry;
+    final temperatureColor =
+        entry.isNormal ? const Color(0xFF17A56B) : const Color(0xFFE5484D);
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFE7EAF0)),
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child:
+                    entry.driverPhotoPath == null
+                        ? Container(
+                          height: 48,
+                          width: 48,
+                          alignment: Alignment.center,
+                          color: const Color(0xFFEAF6FC),
+                          child: Text(
+                            _driverInitials(entry.driverName),
+                            style: const TextStyle(
+                              color: Color(0xFF1BA7E1),
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        )
+                        : DriverPhotoImage(
+                          path: entry.driverPhotoPath!,
+                          height: 48,
+                          width: 48,
+                        ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entry.driverName,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF111827),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      '${entry.driverPhone}  |  ${summary.totalLogs} log${summary.totalLogs == 1 ? '' : 's'}',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF7D8491),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      'Latest: ${entry.dateTimeLabel}',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF9AA2AF),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '${entry.temperature.toStringAsFixed(1)} F',
+                    style: TextStyle(
+                      color: temperatureColor,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: Color(0xFF9AA2AF),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1961,6 +2474,230 @@ class RecordDetailPage extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class DriverRecordsDetailPage extends StatelessWidget {
+  const DriverRecordsDetailPage({required this.summary, super.key});
+
+  final DriverRecordSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final driver = summary.latestEntry;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F9FC),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  IconButton.filledTonal(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.chevron_left_rounded),
+                    color: const Color(0xFF111827),
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      fixedSize: const Size(46, 46),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Driver Records',
+                      style: TextStyle(
+                        color: Color(0xFF111827),
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 22),
+              if (driver.driverPhotoPath != null) ...[
+                Center(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: DriverPhotoImage(
+                      path: driver.driverPhotoPath!,
+                      height: 112,
+                      width: 112,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFE7EAF0)),
+                ),
+                child: Column(
+                  children: [
+                    DetailRow(label: 'Driver Name', value: driver.driverName),
+                    DetailRow(
+                      label: 'Driver Phone',
+                      value: driver.driverPhone,
+                      showDivider: false,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 22),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'All Time Records (${summary.totalLogs})',
+                      style: const TextStyle(
+                        color: Color(0xFF111827),
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  IconButton.filledTonal(
+                    onPressed:
+                        () => _showAuthMessage(
+                          context,
+                          'Downloading all records for ${driver.driverName}.',
+                        ),
+                    icon: const Icon(Icons.download_rounded),
+                    tooltip: 'Download driver records',
+                    color: const Color(0xFF1BA7E1),
+                    style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFFEAF6FC),
+                      fixedSize: const Size(42, 42),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ...summary.logs.map(
+                (entry) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: DriverLogCard(entry: entry),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class DriverLogCard extends StatelessWidget {
+  const DriverLogCard({required this.entry, super.key});
+
+  final TruckEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final temperatureColor =
+        entry.isNormal ? const Color(0xFF17A56B) : const Color(0xFFE5484D);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE7EAF0)),
+      ),
+      child: Column(
+        children: [
+          DriverLogRow(
+            icon: Icons.event_available_outlined,
+            label: 'Date & Time',
+            value: entry.dateTimeLabel,
+          ),
+          const SizedBox(height: 10),
+          DriverLogRow(
+            icon: Icons.thermostat_outlined,
+            label: 'Temperature',
+            value: '${entry.temperature.toStringAsFixed(1)} F',
+            valueColor: temperatureColor,
+          ),
+          const SizedBox(height: 10),
+          DriverLogRow(
+            icon: Icons.health_and_safety_outlined,
+            label: 'Temperature Status',
+            value: entry.isNormal ? 'Normal' : 'High Temperature',
+            valueColor: temperatureColor,
+          ),
+          const SizedBox(height: 10),
+          DriverLogRow(
+            icon: Icons.local_shipping_outlined,
+            label: 'Truck Number',
+            value: entry.truckNumber,
+          ),
+          const SizedBox(height: 10),
+          DriverLogRow(
+            icon: Icons.inventory_2_outlined,
+            label: 'Material Type',
+            value: entry.materialType,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class DriverLogRow extends StatelessWidget {
+  const DriverLogRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.valueColor = const Color(0xFF111827),
+    super.key,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: const Color(0xFF1BA7E1), size: 17),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF7D8491),
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              color: valueColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2296,7 +3033,9 @@ class ProfileOptionDivider extends StatelessWidget {
 }
 
 class TruckEntry {
-  static const highTemperatureLimit = 99.5;
+  static const normalTemperatureMin = 97.0;
+  static const normalTemperatureMax = 99.0;
+  static const highTemperatureLimit = normalTemperatureMax;
 
   const TruckEntry({
     required this.driverName,
@@ -2316,7 +3055,12 @@ class TruckEntry {
   final DateTime entryDateTime;
   final String? driverPhotoPath;
 
-  bool get isNormal => temperature <= highTemperatureLimit;
+  bool get isNormal => isTemperatureNormal(temperature);
+
+  static bool isTemperatureNormal(double temperature) {
+    return temperature >= normalTemperatureMin &&
+        temperature <= normalTemperatureMax;
+  }
 
   String get entryTime => _formatTime(entryDateTime);
 
@@ -2365,10 +3109,23 @@ String _formatTime(DateTime dateTime) {
 
 String _twoDigits(int value) => value.toString().padLeft(2, '0');
 
-bool _isSameDate(DateTime first, DateTime second) {
-  return first.year == second.year &&
-      first.month == second.month &&
-      first.day == second.day;
+String _timelineLabel(RecordsTimelineFilter filter) {
+  return switch (filter) {
+    RecordsTimelineFilter.today => 'Today',
+    RecordsTimelineFilter.yesterday => 'Yesterday',
+    RecordsTimelineFilter.lastWeek => 'Last week',
+    RecordsTimelineFilter.lastMonth => 'Last month',
+  };
+}
+
+String _driverInitials(String name) {
+  final parts = name.trim().split(RegExp(r'\s+'));
+  if (parts.isEmpty || parts.first.isEmpty) {
+    return 'DR';
+  }
+  final first = parts.first.characters.first;
+  final second = parts.length > 1 ? parts.last.characters.first : '';
+  return '$first$second'.toUpperCase();
 }
 
 String _normalizeTruckNumber(String value) {
@@ -3168,6 +3925,139 @@ extension RequiredMessage on String {
 
 void _push(BuildContext context, Widget page) {
   Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
+}
+
+void _showNotifications(BuildContext context) {
+  const notifications = [
+    (
+      icon: Icons.thermostat_outlined,
+      title: 'High temperature alert',
+      message: 'Truck MH 12 AQ 7720 needs supervisor review.',
+      time: '2 min ago',
+      color: Color(0xFFE5484D),
+    ),
+    (
+      icon: Icons.local_shipping_outlined,
+      title: 'Entry approved',
+      message: 'Ramesh Patil entry was approved at the main gate.',
+      time: '12 min ago',
+      color: Color(0xFF17A56B),
+    ),
+    (
+      icon: Icons.inventory_2_outlined,
+      title: 'Material update',
+      message: 'Finished Goods queue has 3 pending vehicles.',
+      time: '28 min ago',
+      color: Color(0xFF1BA7E1),
+    ),
+  ];
+
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+    ),
+    builder:
+        (sheetContext) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 2, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Notifications',
+                        style: TextStyle(
+                          color: Color(0xFF111827),
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                      tooltip: 'Close notifications',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ...notifications.map(
+                  (notification) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF7F9FC),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFE7EAF0)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            height: 40,
+                            width: 40,
+                            decoration: BoxDecoration(
+                              color: notification.color.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              notification.icon,
+                              color: notification.color,
+                              size: 21,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  notification.title,
+                                  style: const TextStyle(
+                                    color: Color(0xFF111827),
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  notification.message,
+                                  style: const TextStyle(
+                                    color: Color(0xFF515A68),
+                                    fontSize: 12,
+                                    height: 1.35,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            notification.time,
+                            style: const TextStyle(
+                              color: Color(0xFF9AA2AF),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+  );
 }
 
 void _showAuthMessage(BuildContext context, String message) {
