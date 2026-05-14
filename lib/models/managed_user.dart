@@ -1,7 +1,6 @@
-class AppUser {
-  const AppUser({
+class ManagedUser {
+  const ManagedUser({
     required this.id,
-    required this.cognitoSub,
     required this.name,
     required this.email,
     required this.phone,
@@ -13,7 +12,6 @@ class AppUser {
   });
 
   final String id;
-  final String cognitoSub;
   final String name;
   final String email;
   final String? phone;
@@ -23,22 +21,29 @@ class AppUser {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
-  factory AppUser.fromJson(Map<String, dynamic> json) {
-    final parsedRole = json['role']?.toString().trim().toLowerCase() ?? '';
-
-    return AppUser(
+  factory ManagedUser.fromJson(Map<String, dynamic> json) {
+    return ManagedUser(
       id: json['id']?.toString() ?? '',
-      cognitoSub: json['cognito_sub']?.toString() ?? '',
       name: json['name']?.toString() ?? '',
       email: json['email']?.toString() ?? '',
       phone: json['phone']?.toString(),
-      role: parsedRole,
+      role: json['role']?.toString().trim().toLowerCase() ?? '',
       siteName: json['site_name']?.toString(),
       isActive: json['is_active'] == true,
       createdAt: DateTime.tryParse(json['created_at']?.toString() ?? ''),
       updatedAt: DateTime.tryParse(json['updated_at']?.toString() ?? ''),
     );
   }
+
+  String get displayRole {
+    return switch (role) {
+      'supervisor' => 'Supervisor',
+      'security' => 'Security Guard',
+      _ => _titleCase(role),
+    };
+  }
+
+  String get statusLabel => isActive ? 'Active' : 'Disabled';
 
   String get initials {
     final words = name
@@ -47,30 +52,6 @@ class AppUser {
         .where((word) => word.isNotEmpty);
     final value = words.take(2).map((word) => word[0].toUpperCase()).join();
     return value.isEmpty ? 'U' : value;
-  }
-
-  String get displayRole {
-    return switch (role.toLowerCase()) {
-      'supervisor' => 'Supervisor',
-      'security' => 'Security Guard',
-      'admin' => 'Admin',
-      _ => _titleCase(role),
-    };
-  }
-
-  bool get isAdmin => role.toLowerCase() == 'admin';
-
-  bool get isSupervisor => role.toLowerCase() == 'supervisor';
-
-  bool get isSecurity => role.toLowerCase() == 'security';
-
-  String get headerRoleLabel {
-    return switch (role.toLowerCase()) {
-      'admin' => 'Admin',
-      'supervisor' => 'Supervisor',
-      'security' => 'Security Guard',
-      _ => 'User',
-    };
   }
 
   static String _titleCase(String value) {

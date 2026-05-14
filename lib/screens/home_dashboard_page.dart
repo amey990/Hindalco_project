@@ -26,70 +26,129 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
 
   @override
   Widget build(BuildContext context) {
+    final tabs = _visibleTabs;
+    final selectedIndex =
+        _selectedIndex >= tabs.length ? 0 : _selectedIndex;
+    if (selectedIndex != _selectedIndex) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() => _selectedIndex = selectedIndex);
+        }
+      });
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FC),
       body: SafeArea(
         child: IndexedStack(
-          index: _selectedIndex,
-          children: [
-            _DashboardHome(
+          index: selectedIndex,
+          children: tabs.map((tab) => tab.builder(context)).toList(),
+        ),
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: selectedIndex,
+        onDestinationSelected:
+            (index) => setState(() => _selectedIndex = index),
+        backgroundColor: Colors.white,
+        indicatorColor: _blue.withValues(alpha: 0.14),
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        destinations: tabs.map((tab) => tab.destination).toList(),
+      ),
+    );
+  }
+
+  List<_DashboardTab> get _visibleTabs {
+    final user = _currentUser;
+    final tabs = <_DashboardTab>[
+      _DashboardTab(
+        label: 'Home',
+        destination: const NavigationDestination(
+          icon: Icon(Icons.home_outlined),
+          selectedIcon: Icon(Icons.home_rounded, color: _blue),
+          label: 'Home',
+        ),
+        builder:
+            (_) => _DashboardHome(
               recentEntries: _dashboardRecentEntries,
               totalEntries: _dashboardStats.totalEntries,
               normalTemperature: _dashboardStats.normalTemperatureCount,
               highTemperature: _dashboardStats.highTemperatureCount,
               trucksInside: _dashboardStats.trucksInside,
               isLoading: _isDashboardLoading,
-              user: _currentUser,
+              user: user,
               onRefresh: _loadDashboardData,
-              onNewEntry: () => setState(() => _selectedIndex = 1),
+              onNewEntry: () => _selectTab('New Entry'),
               onLogout: _logout,
             ),
-            NewTruckEntryPage(
+      ),
+      _DashboardTab(
+        label: 'New Entry',
+        destination: const NavigationDestination(
+          icon: Icon(Icons.add_circle_outline_rounded),
+          selectedIcon: Icon(Icons.add_circle_rounded, color: _blue),
+          label: 'New Entry',
+        ),
+        builder:
+            (_) => NewTruckEntryPage(
               existingEntries: _recentEntries,
               onLogout: _logout,
-              user: _currentUser,
+              user: user,
               onSubmit: _addTruckEntry,
             ),
-            RecordsPage(
+      ),
+      _DashboardTab(
+        label: 'Records',
+        destination: const NavigationDestination(
+          icon: Icon(Icons.receipt_long_outlined),
+          selectedIcon: Icon(Icons.receipt_long_rounded, color: _blue),
+          label: 'Records',
+        ),
+        builder:
+            (_) => RecordsPage(
               entries: _recentEntries,
               onLogout: _logout,
-              user: _currentUser,
+              user: user,
             ),
-            ProfilePage(onLogout: _logout, initialUser: _currentUser),
-          ],
+      ),
+      if (user?.canAccessAdminPanel == true)
+        _DashboardTab(
+          label: 'Admin',
+          destination: const NavigationDestination(
+            icon: Icon(Icons.admin_panel_settings_outlined),
+            selectedIcon: Icon(
+              Icons.admin_panel_settings_rounded,
+              color: _blue,
+            ),
+            label: 'Admin',
+          ),
+          builder:
+              (_) => AdminPage(
+                user: user,
+                onLogout: _logout,
+              ),
         ),
+      _DashboardTab(
+        label: 'Profile',
+        destination: const NavigationDestination(
+          icon: Icon(Icons.person_outline_rounded),
+          selectedIcon: Icon(Icons.person_rounded, color: _blue),
+          label: 'Profile',
+        ),
+        builder: (_) => ProfilePage(onLogout: _logout, initialUser: user),
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected:
-            (index) => setState(() => _selectedIndex = index),
-        backgroundColor: Colors.white,
-        indicatorColor: _blue.withValues(alpha: 0.14),
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home_rounded, color: _blue),
-            label: 'Home',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.add_circle_outline_rounded),
-            selectedIcon: Icon(Icons.add_circle_rounded, color: _blue),
-            label: 'New Entry',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.receipt_long_outlined),
-            selectedIcon: Icon(Icons.receipt_long_rounded, color: _blue),
-            label: 'Records',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline_rounded),
-            selectedIcon: Icon(Icons.person_rounded, color: _blue),
-            label: 'Profile',
-          ),
-        ],
-      ),
-    );
+    ];
+
+    return tabs;
+  }
+
+  void _selectTab(String label) {
+    final tabs = _visibleTabs;
+    final index = tabs.indexWhere((tab) => tab.label == label);
+    if (index == -1) {
+      setState(() => _selectedIndex = 0);
+      return;
+    }
+    setState(() => _selectedIndex = index);
   }
 
   Future<void> _loadCurrentUser() async {
@@ -98,6 +157,8 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
       if (!mounted) {
         return;
       }
+      debugPrint('Current role loaded: ${user?.role ?? 'unknown'}');
+      debugPrint('Visible tabs: ${_tabLabelsFor(user).join(', ')}');
       setState(() => _currentUser = user);
     } catch (_) {
       if (!mounted) {
@@ -105,6 +166,16 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
       }
       setState(() => _currentUser = null);
     }
+  }
+
+  List<String> _tabLabelsFor(AppUser? user) {
+    return [
+      'Home',
+      'New Entry',
+      'Records',
+      if (user?.canAccessAdminPanel == true) 'Admin',
+      'Profile',
+    ];
   }
 
   Future<void> _loadDashboardData() async {
@@ -164,6 +235,18 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
     });
     _loadDashboardData();
   }
+}
+
+class _DashboardTab {
+  const _DashboardTab({
+    required this.label,
+    required this.destination,
+    required this.builder,
+  });
+
+  final String label;
+  final NavigationDestination destination;
+  final WidgetBuilder builder;
 }
 
 class _DashboardHome extends StatelessWidget {

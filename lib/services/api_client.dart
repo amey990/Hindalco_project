@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:mime/mime.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'api_config.dart';
@@ -61,11 +63,51 @@ class ApiClient {
     final request = http.MultipartRequest('POST', _uri(endpoint));
     request.headers.addAll(await _headers());
     request.fields.addAll(fields ?? <String, String>{});
-    request.files.add(await http.MultipartFile.fromPath(fileField, filePath));
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        fileField,
+        filePath,
+        contentType: _imageContentType(filePath),
+      ),
+    );
 
     final streamedResponse = await _client.send(request);
     final response = await http.Response.fromStream(streamedResponse);
     return _handleJsonResponse(response);
+  }
+
+  MediaType _imageContentType(String filePath) {
+    final normalizedPath = filePath.toLowerCase();
+    if (normalizedPath.endsWith('.jpg') ||
+        normalizedPath.endsWith('.jpeg')) {
+      return MediaType('image', 'jpeg');
+    }
+    if (normalizedPath.endsWith('.png')) {
+      return MediaType('image', 'png');
+    }
+    if (normalizedPath.endsWith('.webp')) {
+      return MediaType('image', 'webp');
+    }
+
+    final mimeType = lookupMimeType(filePath) ?? '';
+    return switch (mimeType) {
+      'image/jpeg' || 'image/jpg' => MediaType('image', 'jpeg'),
+      'image/png' => MediaType('image', 'png'),
+      'image/webp' => MediaType('image', 'webp'),
+      _ => _fallbackImageContentType(filePath),
+    };
+  }
+
+  MediaType _fallbackImageContentType(String filePath) {
+    final fileName = filePath.split(RegExp(r'[\\/]')).last;
+    if (!fileName.contains('.')) {
+      return MediaType('image', 'jpeg');
+    }
+
+    throw Exception(
+      'Only JPG, PNG, and WEBP images are allowed. '
+      'Please capture or select another image.',
+    );
   }
 
   Future<String> downloadFile(

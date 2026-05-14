@@ -20,4 +20,5 @@ class ApiConfig {
   static const String uploadDriverPhoto = '/uploads/driver-photo';
   static const String reportsRecords = '/reports/records';
   static const String reportsDriver = '/reports/driver';
+  static const String adminUsers = '/admin/users';
 }

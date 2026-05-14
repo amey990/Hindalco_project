@@ -53,9 +53,6 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
   double? get _temperature =>
       double.tryParse(_temperatureController.text.trim());
 
-  bool get _hasHighTemperature =>
-      _temperature != null && _temperature! > TruckEntry.highTemperatureLimit;
-
   @override
   void initState() {
     super.initState();
@@ -90,6 +87,10 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
         user: widget.user,
         onGoBack: _returnToEntryForm,
       );
+    }
+
+    if (widget.user?.canCreateEntry == false) {
+      return const AccessDeniedView();
     }
 
     return CustomScrollView(
@@ -318,6 +319,7 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
               (value) => setState(
                 () => _setSelectedCargoType(value ?? _cargoTypes.first),
               ),
+          canAddOption: widget.user?.canAddMaterial ?? true,
           onAddOption: _showAddCargoTypeDialog,
         ),
         const SizedBox(height: 14),
@@ -325,6 +327,12 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
           controller: _temperatureController,
           label: 'Temperature (F)',
           icon: Icons.thermostat_outlined,
+          readOnly: true,
+          onTap:
+              () => _showAuthMessage(
+                context,
+                'Use Bluetooth thermometer to capture temperature.',
+              ),
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           textInputAction: TextInputAction.done,
           inputFormatters: [
@@ -334,9 +342,9 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
           validator: (value) {
             final temperature = double.tryParse(value?.trim() ?? '');
             if (temperature == null) {
-              return 'Temperature is required';
+              return 'Please capture temperature using Bluetooth thermometer.';
             }
-            if (temperature < 90 || temperature > 110) {
+            if (temperature < 50 || temperature > 120) {
               return 'Enter a valid temperature';
             }
             return null;
@@ -349,11 +357,7 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
         ),
         const SizedBox(height: 12),
         OutlinedButton.icon(
-          onPressed:
-              () => _showAuthMessage(
-                context,
-                'Bluetooth thermometer integration coming soon.',
-              ),
+          onPressed: _openBluetoothThermometer,
           icon: const Icon(Icons.bluetooth_searching_rounded),
           label: const Text('Connect Bluetooth Thermometer'),
           style: OutlinedButton.styleFrom(
@@ -365,17 +369,6 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
             ),
             textStyle: const TextStyle(fontWeight: FontWeight.w800),
           ),
-        ),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 180),
-          child:
-              _hasHighTemperature
-                  ? const Padding(
-                    key: ValueKey('high-temperature-warning'),
-                    padding: EdgeInsets.only(top: 14),
-                    child: HighTemperatureBanner(),
-                  )
-                  : const SizedBox.shrink(),
         ),
         const SizedBox(height: 14),
         DateTimeInfoField(value: _formatDateTime(_entryDateTime)),
@@ -546,7 +539,42 @@ class _NewTruckEntryPageState extends State<NewTruckEntryPage> {
     _showAuthMessage(context, 'Driver photo captured.');
   }
 
+  Future<void> _openBluetoothThermometer() async {
+    final temperature = await showModalBottomSheet<double>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => const BleThermometerSheet(),
+    );
+
+    if (!mounted || temperature == null) {
+      return;
+    }
+
+    final value = temperature.toStringAsFixed(1);
+    setState(() => _temperatureController.text = value);
+    final normalRangeMessage =
+        temperature < 97 || temperature > 99
+            ? ' This is outside the normal range.'
+            : '';
+    _showAuthMessage(
+      context,
+      'Temperature captured: $value°F.$normalRangeMessage',
+    );
+  }
+
   Future<void> _showAddCargoTypeDialog() async {
+    if (widget.user?.canAddMaterial == false) {
+      _showAuthMessage(
+        context,
+        'Only supervisors/admins can add new materials.',
+      );
+      return;
+    }
+
     final controller = TextEditingController();
     final formKey = GlobalKey<FormState>();
     var isSaving = false;

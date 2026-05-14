@@ -147,11 +147,13 @@ class DriverRecordsDetailPage extends StatefulWidget {
   const DriverRecordsDetailPage({
     required this.summary,
     this.timeline = 'all',
+    this.user,
     super.key,
   });
 
   final DriverRecordSummary summary;
   final String timeline;
+  final AppUser? user;
 
   @override
   State<DriverRecordsDetailPage> createState() =>
@@ -188,6 +190,15 @@ class _DriverRecordsDetailPageState extends State<DriverRecordsDetailPage> {
   }
 
   Future<void> _downloadDriverReport() async {
+    final user = widget.user ?? CurrentUserStore.user.value;
+    if (user?.canDownloadReports == false) {
+      _showAuthMessage(
+        context,
+        'You do not have permission to download reports.',
+      );
+      return;
+    }
+
     try {
       final path = await ReportService().downloadDriverReport(
         phone: widget.summary.latestEntry.driverPhone,
@@ -219,6 +230,9 @@ class _DriverRecordsDetailPageState extends State<DriverRecordsDetailPage> {
             : fallbackDriver.driverPhone;
     final driverPhotoPath =
         driver?.latestPhotoUrl ?? fallbackDriver.driverPhotoPath;
+    final canDownloadReports =
+        (widget.user ?? CurrentUserStore.user.value)?.canDownloadReports ??
+        true;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FC),
@@ -303,16 +317,17 @@ class _DriverRecordsDetailPageState extends State<DriverRecordsDetailPage> {
                       ),
                     ),
                   ),
-                  IconButton.filledTonal(
-                    onPressed: _downloadDriverReport,
-                    icon: const Icon(Icons.download_rounded),
-                    tooltip: 'Download driver records',
-                    color: const Color(0xFF1BA7E1),
-                    style: IconButton.styleFrom(
-                      backgroundColor: const Color(0xFFEAF6FC),
-                      fixedSize: const Size(42, 42),
+                  if (canDownloadReports)
+                    IconButton.filledTonal(
+                      onPressed: _downloadDriverReport,
+                      icon: const Icon(Icons.download_rounded),
+                      tooltip: 'Download driver records',
+                      color: const Color(0xFF1BA7E1),
+                      style: IconButton.styleFrom(
+                        backgroundColor: const Color(0xFFEAF6FC),
+                        fixedSize: const Size(42, 42),
+                      ),
                     ),
-                  ),
                 ],
               ),
               const SizedBox(height: 12),

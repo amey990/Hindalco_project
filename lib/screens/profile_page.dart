@@ -55,13 +55,13 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) {
     final user = _displayUser;
     final displayName =
-        user?.name.isNotEmpty == true ? user!.name : 'Supervisor';
+        user?.name.isNotEmpty == true ? user!.name : 'User';
     final initials = user?.initials ?? 'U';
     final email =
         user?.email.isNotEmpty == true
             ? user!.email
-            : 'supervisor@hindalco.com';
-    final role = user?.displayRole ?? 'Supervisor';
+            : 'user@hindalco.com';
+    final role = user?.displayRole ?? 'User';
     final siteName =
         user?.siteName?.trim().isNotEmpty == true
             ? user!.siteName!
@@ -176,26 +176,6 @@ class _ProfilePageState extends State<ProfilePage> {
                             () => _showAuthMessage(
                               context,
                               'Change password will be available soon.',
-                            ),
-                      ),
-                      const ProfileOptionDivider(),
-                      ProfileOptionTile(
-                        icon: Icons.notifications_outlined,
-                        title: 'Notification Settings',
-                        onTap:
-                            () => _showAuthMessage(
-                              context,
-                              'Notification settings will be available soon.',
-                            ),
-                      ),
-                      const ProfileOptionDivider(),
-                      ProfileOptionTile(
-                        icon: Icons.info_outline_rounded,
-                        title: 'About App',
-                        onTap:
-                            () => _showAuthMessage(
-                              context,
-                              'Hindalco Truck Entry App v1.0.0',
                             ),
                       ),
                       const ProfileOptionDivider(),

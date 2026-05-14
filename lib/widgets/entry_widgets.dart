@@ -264,6 +264,7 @@ class DashboardTextField extends StatelessWidget {
     this.inputFormatters,
     this.validator,
     this.readOnly = false,
+    this.onTap,
     super.key,
   });
 
@@ -276,12 +277,16 @@ class DashboardTextField extends StatelessWidget {
   final List<TextInputFormatter>? inputFormatters;
   final String? Function(String?)? validator;
   final bool readOnly;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return TextFormField(
       controller: controller,
       readOnly: readOnly,
+      showCursor: !readOnly,
+      enableInteractiveSelection: !readOnly,
+      onTap: onTap,
       keyboardType: keyboardType,
       textInputAction: textInputAction,
       textCapitalization: textCapitalization,
@@ -310,6 +315,7 @@ class DashboardDropdownField extends StatelessWidget {
     required this.items,
     required this.onChanged,
     required this.onAddOption,
+    this.canAddOption = true,
     super.key,
   });
 
@@ -319,6 +325,7 @@ class DashboardDropdownField extends StatelessWidget {
   final List<String> items;
   final ValueChanged<String?> onChanged;
   final VoidCallback onAddOption;
+  final bool canAddOption;
 
   @override
   Widget build(BuildContext context) {
@@ -328,7 +335,7 @@ class DashboardDropdownField extends StatelessWidget {
         Expanded(
           child: DropdownButtonFormField<String>(
             key: ValueKey('${items.length}-$value'),
-            value: items.contains(value) ? value : null,
+            initialValue: items.contains(value) ? value : null,
             items:
                 items
                     .map(
@@ -356,8 +363,14 @@ class DashboardDropdownField extends StatelessWidget {
           child: IconButton.filledTonal(
             onPressed: onAddOption,
             icon: const Icon(Icons.edit_outlined),
-            tooltip: 'Add material type',
-            color: const Color(0xFF1BA7E1),
+            tooltip:
+                canAddOption
+                    ? 'Add material type'
+                    : 'Only supervisors/admins can add new materials.',
+            color:
+                canAddOption
+                    ? const Color(0xFF1BA7E1)
+                    : const Color(0xFF9AA2AF),
             style: IconButton.styleFrom(
               backgroundColor: const Color(0xFFEAF6FC),
               shape: RoundedRectangleBorder(

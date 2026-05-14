@@ -11,7 +11,9 @@ class DashboardHeader extends StatelessWidget {
     return ValueListenableBuilder<AppUser?>(
       valueListenable: CurrentUserStore.user,
       builder: (context, storedUser, _) {
-        final displayName = _headerDisplayName(user ?? storedUser);
+        final appUser = user ?? storedUser;
+        final displayName = _headerDisplayName(appUser);
+        final roleLabel = appUser?.headerRoleLabel ?? 'User';
 
         return Row(
           children: [
@@ -47,7 +49,7 @@ class DashboardHeader extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    'Supervisor: $displayName',
+                    '$roleLabel: $displayName',
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: Color(0xFF7D8491),
@@ -89,7 +91,7 @@ class DashboardHeader extends StatelessWidget {
     if (name != null && name.isNotEmpty) {
       return name;
     }
-    return 'Supervisor';
+    return 'User';
   }
 }
 

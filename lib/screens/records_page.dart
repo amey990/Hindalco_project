@@ -29,6 +29,8 @@ class _RecordsPageState extends State<RecordsPage> {
   bool _isLoading = true;
   Timer? _searchDebounce;
 
+  AppUser? get _effectiveUser => widget.user ?? CurrentUserStore.user.value;
+
   @override
   void initState() {
     super.initState();
@@ -44,6 +46,34 @@ class _RecordsPageState extends State<RecordsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final user = _effectiveUser;
+    if (user?.canViewRecords == false) {
+      return const AccessDeniedView();
+    }
+
+    final canViewByUser = user?.canViewByUserRecords ?? true;
+    final canDownloadReports = user?.canDownloadReports ?? true;
+    final timelineFilters =
+        user?.canViewAllRecords == false
+            ? const [RecordsTimelineFilter.today]
+            : RecordsTimelineFilter.values;
+    if (!canViewByUser && _selectedMode == RecordsViewMode.byUser) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() => _selectedMode = RecordsViewMode.all);
+          _loadRecords();
+        }
+      });
+    }
+    if (!timelineFilters.contains(_selectedTimeline)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() => _selectedTimeline = RecordsTimelineFilter.today);
+          _loadRecords();
+        }
+      });
+    }
+
     final visibleCount =
         _selectedMode == RecordsViewMode.all
             ? _entries.length
@@ -84,14 +114,14 @@ class _RecordsPageState extends State<RecordsPage> {
                         width: 118,
                         height: 46,
                         child: DropdownButtonFormField<RecordsTimelineFilter>(
-                          value: _selectedTimeline,
+                          initialValue: _selectedTimeline,
                           isExpanded: true,
                           icon: const Icon(
                             Icons.keyboard_arrow_down_rounded,
                             size: 20,
                           ),
                           items:
-                              RecordsTimelineFilter.values
+                              timelineFilters
                                   .map(
                                     (filter) => DropdownMenuItem(
                                       value: filter,
@@ -136,16 +166,18 @@ class _RecordsPageState extends State<RecordsPage> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      IconButton.filledTonal(
-                        onPressed: _isLoading ? null : _downloadRecordsReport,
-                        icon: const Icon(Icons.download_rounded),
-                        tooltip: 'Download records',
-                        color: const Color(0xFF1BA7E1),
-                        style: IconButton.styleFrom(
-                          backgroundColor: const Color(0xFFEAF6FC),
-                          fixedSize: const Size(46, 46),
+                      if (canDownloadReports)
+                        IconButton.filledTonal(
+                          onPressed:
+                              _isLoading ? null : _downloadRecordsReport,
+                          icon: const Icon(Icons.download_rounded),
+                          tooltip: 'Download records',
+                          color: const Color(0xFF1BA7E1),
+                          style: IconButton.styleFrom(
+                            backgroundColor: const Color(0xFFEAF6FC),
+                            fixedSize: const Size(46, 46),
+                          ),
                         ),
-                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -159,14 +191,17 @@ class _RecordsPageState extends State<RecordsPage> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  RecordsModeToggle(
-                    selectedMode: _selectedMode,
-                    onChanged: (mode) {
-                      setState(() => _selectedMode = mode);
-                      _loadRecords();
-                    },
-                  ),
-                  const SizedBox(height: 18),
+                  if (canViewByUser) ...[
+                    RecordsModeToggle(
+                      selectedMode: _selectedMode,
+                      onChanged: (mode) {
+                        setState(() => _selectedMode = mode);
+                        _loadRecords();
+                      },
+                    ),
+                    const SizedBox(height: 18),
+                  ] else
+                    const SizedBox(height: 4),
                   if (_isLoading) ...[
                     const LinearProgressIndicator(minHeight: 2),
                     const SizedBox(height: 12),
@@ -222,6 +257,19 @@ class _RecordsPageState extends State<RecordsPage> {
   }
 
   Future<void> _loadRecords() async {
+    final user = _effectiveUser;
+    if (user?.canViewRecords == false) {
+      setState(() => _isLoading = false);
+      return;
+    }
+    if (user?.canViewByUserRecords == false &&
+        _selectedMode == RecordsViewMode.byUser) {
+      _selectedMode = RecordsViewMode.all;
+    }
+    if (user?.canViewAllRecords == false) {
+      _selectedTimeline = RecordsTimelineFilter.today;
+    }
+
     setState(() => _isLoading = true);
     try {
       if (_selectedMode == RecordsViewMode.all) {
@@ -264,6 +312,14 @@ class _RecordsPageState extends State<RecordsPage> {
   }
 
   Future<void> _downloadRecordsReport() async {
+    if (_effectiveUser?.canDownloadReports == false) {
+      _showAuthMessage(
+        context,
+        'You do not have permission to download reports.',
+      );
+      return;
+    }
+
     try {
       final path = await ReportService().downloadRecordsReport(
         timeline: _timelineApiValue(_selectedTimeline),
@@ -293,6 +349,7 @@ class _RecordsPageState extends State<RecordsPage> {
             (_) => DriverRecordsDetailPage(
               summary: summary,
               timeline: _timelineApiValue(_selectedTimeline),
+              user: _effectiveUser,
             ),
       ),
     );
